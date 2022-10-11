@@ -575,3 +575,169 @@ inline void imlib_draw_string(image_t *img, int x_off, int y_off, mp_obj_t str, 
     imlib_draw_utf8_string(img, x_off, y_off, str, c, scale, x_spacing, y_spacing, mono_space);
   }
 }
+
+void get_ascii_string_size(const char *str, float scale, int x_spacing, int y_spacing, bool mono_space, int* p_width, int* p_height) {    
+    const uint8_t font_len = (font_config.width / 8) * font_config.high;
+    const int anchor = 0;
+
+    int x_off = 0;
+    int max_width = 0;
+    int y_off = 0;
+
+    for(char ch, last = '\0'; (ch = *str); str++, last = ch) {
+        if ((last == '\r') && (ch == '\n')) { // handle "\r\n" strings
+            continue;
+        }
+
+        if ((ch == '\n') || (ch == '\r')) { // handle '\n' or '\r' strings
+            max_width = MAX(x_off, max_width);
+            x_off = anchor;
+            y_off += fast_roundf(font_config.high * scale) + y_spacing; // newline height == space height
+            continue;
+        }
+
+        if ((ch < ' ') || (ch > '~')) { // handle unknown characters           
+            continue;
+        }
+
+        const uint8_t *font = &ascii[(ch - ' ') * font_len];
+        
+        if (!mono_space) {
+            // Find the first pixel set and offset to that.
+            bool exit = false;
+
+            for (int x = 0, xx = font_config.width; x < xx; x++) {
+                for (int y = 0, yy = font_config.high; y < yy; y++) {
+                    if (font[y] & (1 << (font_config.width - 1 - x))) {
+                        x_off -= fast_roundf(x * scale);
+                        exit = true;
+                        break;
+                    }
+                }
+
+                if (exit) break;
+            }
+        }
+
+        if (mono_space) {
+            x_off += fast_roundf(font_config.width * scale) + x_spacing;
+        } else {
+            // Find the last pixel set and offset to that.
+            bool exit = false;
+
+            for (int x = font_config.width - 1; x >= 0; x--) {
+                for (int y = font_config.high - 1; y >= 0; y--) {
+                    if (font[y] & (1 << (font_config.width - 1 - x))) {
+                        x_off += fast_roundf((x + 2) * scale) + x_spacing;
+                        exit = true;
+                        break;
+                    }
+                }
+
+                if (exit) break;
+            }
+
+            if (!exit) x_off += fast_roundf(scale * 3); // space char
+        }
+    }
+
+    *p_width = MAX(max_width, x_off);
+    *p_height = y_off + (fast_roundf(font_config.high * scale) + y_spacing);
+}
+
+void get_utf8_string_size(mp_obj_t str, float scale, int x_spacing, int y_spacing, bool mono_space, int* p_width, int* p_height) {
+  const uint8_t font_len = (font_config.width / 8) * font_config.high;
+  const uint8_t *string = mp_obj_str_get_str(str);
+  int len = mp_obj_len(str);
+  int x_off = 0;
+  int max_width = 0;
+  // mp_buffer_info_t bufinfo;
+  // mp_get_buffer_raise(str, &bufinfo, MP_BUFFER_READ);
+
+  for(int i = 0, pos = 0, bytes = 0; i < len; i += bytes, pos += 1) {
+
+    uint64_t offset = 0;
+    bytes = font_utf8_to_unicode(string + i, &offset);
+    // printk("utfbytes %d offset %llu\r\n", bytes, offset);
+    if (bytes <= 0 || offset <= 0) { // unicode len
+      break;
+    }
+    
+    // printk("offset %llX\r\n", offset);
+
+    uint8_t buffer[font_len];
+    
+    switch (font_config.source)
+    {
+        case FileIn:
+            file_seek_raise(font_config.this, offset * font_len, 0);
+            read_data_raise(font_config.this, buffer, font_len);
+            break;
+        case ArrayIn:
+            // printk("%d %p %p %p", font_len, buffer, font_config.this, &font_config.this[offset * font_len]);
+            // memcpy(buffer, &font_config.this[offset * font_len], font_len);
+            sys_spiffs_read(font_config.this + offset * font_len, font_len, buffer);
+            break;
+        default:
+            break;
+    }
+
+    const uint8_t *font = buffer;
+
+    if (!mono_space) {
+        // Find the first pixel set and offset to that.
+        bool exit = false;
+
+        for (int x = 0, xx = font_config.width; x < xx; x++) {
+            for (int y = 0, yy = font_config.high; y < yy; y++) {
+                if (font[y] & (1 << (font_config.width - 1 - x))) {
+                    x_off -= fast_roundf(x * scale);
+                    exit = true;
+                    break;
+                }
+            }
+
+            if (exit) break;
+        }
+    }
+
+    if (mono_space) {
+        x_off += fast_roundf(font_config.width * scale) + x_spacing;
+    } else {
+        // Find the last pixel set and offset to that.
+        bool exit = false;
+
+        for (int x = font_config.width - 1; x >= 0; x--) {
+            for (int y = font_config.high - 1; y >= 0; y--) {
+                if (font[y] & (1 << (font_config.width - 1 - x))) {
+                    x_off += fast_roundf((x + 2) * scale) + x_spacing;
+                    exit = true;
+                    break;
+                }
+            }
+
+            if (exit) break;
+        }
+
+        if (!exit) x_off += fast_roundf(scale * 3); // space char
+    }
+  }
+
+  *p_width = MAX(max_width, x_off);
+  *p_height = fast_roundf(font_config.high * scale) + y_spacing;
+}
+
+inline void imlib_get_string_size(mp_obj_t str, float scale, int x_spacing, int y_spacing, bool mono_space, int* p_width, int* p_height)
+{
+  // 检查字库文件是否有效
+  mp_obj_base_t* fs_info = (mp_obj_base_t*)(font_config.this);
+  if(font_config.source == FileIn && fs_info->type->protocol == NULL){
+    font_init(8, 12, ASCII, BuildIn, ascii);
+  }
+  if (font_config.index == ASCII) {
+    const char *arg_str = mp_obj_str_get_str(str);
+    get_ascii_string_size(arg_str, scale, x_spacing, y_spacing, mono_space, p_width, p_height);
+  } else if (font_config.index == UTF8) {
+    get_utf8_string_size(str, scale, x_spacing, y_spacing, mono_space, p_width, p_height);
+  }
+}

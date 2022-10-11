@@ -6227,7 +6227,7 @@ static const mp_rom_map_elem_t locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw_rectangle),      MP_ROM_PTR(&py_image_draw_rectangle_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_circle),         MP_ROM_PTR(&py_image_draw_circle_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_ellipse),        MP_ROM_PTR(&py_image_draw_ellipse_obj)},
-    {MP_ROM_QSTR(MP_QSTR_draw_font),         MP_ROM_PTR(&py_image_draw_font_obj)},
+    {MP_ROM_QSTR(MP_QSTR_draw_font),           MP_ROM_PTR(&py_image_draw_font_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_string),         MP_ROM_PTR(&py_image_draw_string_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_cross),          MP_ROM_PTR(&py_image_draw_cross_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_arrow),          MP_ROM_PTR(&py_image_draw_arrow_obj)},
@@ -6764,8 +6764,33 @@ mp_obj_t py_image_load_image(size_t n_args, const mp_obj_t *args, mp_map_t *kw_a
     }
     return py_image_from_struct(&image);
 }
-
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(py_image_load_image_obj, 0, py_image_load_image);
+
+STATIC mp_obj_t py_image_get_string_size(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
+{
+    const mp_obj_t *arg_vec;
+    uint offset = py_helper_consume_array(n_args, args, 0, 1, &arg_vec);   
+    const mp_obj_t arg_str = arg_vec[0];
+    float arg_scale =
+        py_helper_keyword_float(n_args, args, offset + 0, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_scale), 1.0);
+    PY_ASSERT_TRUE_MSG(0 < arg_scale, "Error: 0 < scale!");
+    int arg_x_spacing =
+        py_helper_keyword_int(n_args, args, offset + 1, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_x_spacing), 0);
+    int arg_y_spacing =
+        py_helper_keyword_int(n_args, args, offset + 2, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_y_spacing), 2);
+    bool arg_mono_space =
+        py_helper_keyword_int(n_args, args, offset + 3, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_mono_space), 0);
+
+    int width = 0;
+    int height = 0;
+    imlib_get_string_size(arg_str, arg_scale, arg_x_spacing, arg_y_spacing, arg_mono_space, &width, &height);
+
+    mp_obj_t size_tuple[2];
+    size_tuple[0] = mp_obj_new_int(width);
+    size_tuple[1] = mp_obj_new_int(height);    
+    return mp_obj_new_tuple(2, size_tuple);               
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(py_image_get_string_size_obj, 1, py_image_get_string_size);
 
 mp_obj_t py_image_font_load(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
 {
@@ -7199,6 +7224,7 @@ static const mp_rom_map_elem_t globals_dict_table[] = {
 #endif
     {MP_ROM_QSTR(MP_QSTR_ASCII),               MP_ROM_INT(ASCII)},
     {MP_ROM_QSTR(MP_QSTR_UTF8),                MP_ROM_INT(UTF8)},
+    {MP_ROM_QSTR(MP_QSTR_get_string_size),     MP_ROM_PTR(&py_image_get_string_size_obj)},
     {MP_ROM_QSTR(MP_QSTR_font_load),           MP_ROM_PTR(&py_image_font_load_obj)},
     {MP_ROM_QSTR(MP_QSTR_font_free),           MP_ROM_PTR(&py_image_font_free_obj)},
     {MP_ROM_QSTR(MP_QSTR_ImageWriter),         MP_ROM_PTR(&py_image_imagewriter_obj)},
